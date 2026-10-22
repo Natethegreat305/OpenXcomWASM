@@ -1301,17 +1301,17 @@
 
       try {
         mkdirp(PERSIST_DIR);
-        Module.FS.mount(Module.FS.filesystems.IDBFS, {}, PERSIST_DIR);
+        
+        // Check if IDBFS is actually loaded before mounting
+        var idbfs = (Module.FS && Module.FS.filesystems && Module.FS.filesystems.IDBFS) || (typeof IDBFS !== 'undefined' ? IDBFS : null);
+        
+        if (!idbfs) {
+          throw new Error('IDBFS driver is not available in Emscripten runtime yet.');
+        }
+
+        Module.FS.mount(idbfs, {}, PERSIST_DIR);
         diagLog('IDBFS mounted at ' + PERSIST_DIR, 'ok');
       } catch(e) {
-        diagLog('IDBFS mount failed: ' + e.message, 'fail');
-        showError(
-          'STORAGE ERROR',
-          'Failed to set up browser storage. This can happen in private/incognito mode.',
-          e.message + '\n\n' + (e.stack || '')
-        );
-        return;
-      }
 
       syncFromIDB(function(err) {
         if (err) {
