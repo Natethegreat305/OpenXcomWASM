@@ -647,18 +647,29 @@
     }
 
     function hasUFOData() {
-      try {
-        var entries = Module.FS.readdir(UFO_DIR);
-        var upper = entries.map(function(e) { return e.toUpperCase(); });
-        for (var i = 0; i < REQUIRED_DIRS.length; i++) {
-          if (upper.indexOf(REQUIRED_DIRS[i]) === -1) return false;
-        }
-        return true;
-      } catch(e) {
-        return false;
-      }
-    }
+      var checkPaths = [
+        PERSIST_DIR + '/UFO',
+        '/UFO',
+        PERSIST_DIR
+      ];
 
+      for (var p = 0; p < checkPaths.length; p++) {
+        try {
+          var entries = Module.FS.readdir(checkPaths[p]);
+          var upper = entries.map(function(e) { return e.toUpperCase(); });
+          var matchCount = 0;
+          for (var i = 0; i < REQUIRED_DIRS.length; i++) {
+            if (upper.indexOf(REQUIRED_DIRS[i]) !== -1) matchCount++;
+          }
+          if (matchCount >= 6) {
+            UFO_DIR = checkPaths[p];
+            diagLog('Found UFO data at: ' + UFO_DIR, 'ok');
+            return true;
+          }
+        } catch(e) {}
+      }
+      return false;
+    }
     var KEY_FILES = [
       'GEODATA/WORLD.DAT',
       'GEODATA/OBDATA.DAT',
@@ -1131,15 +1142,19 @@ var restoreBtn    = document.getElementById('restore-saves-btn');
       diagLog('Emscripten runtime initialized', 'ok');
       statusEl.textContent = 'Checking for game data...';
 
+      // 1. Ensure required VFS folders exist
+      mkdirp(PERSIST_DIR);
+      mkdirp('/UFO');
+
+      // 2. Mount IDBFS at BOTH locations to prevent path mismatches
       try {
-        mkdirp(PERSIST_DIR);
-        // Direct mount on PERSIST_DIR
         Module.FS.mount(Module.FS.filesystems.IDBFS, {}, PERSIST_DIR);
         diagLog('IDBFS mounted at ' + PERSIST_DIR, 'ok');
       } catch(e) {
         diagLog('IDBFS mount status: ' + e.message, 'warn');
       }
 
+      // 3. Sync from browser IndexedDB to RAM
       syncFromIDB(function(err) {
         if (err) {
           diagLog('syncfs(populate) error: ' + err, 'warn');
@@ -1152,16 +1167,16 @@ var restoreBtn    = document.getElementById('restore-saves-btn');
           writePendingRestores();
         }
 
+        // 4. Verify data presence
         if (hasUFOData()) {
-          diagLog('UFO game data found in storage', 'ok');
+          diagLog('UFO game data found in storage — auto launching!', 'ok');
           startGame();
         } else {
-          diagLog('No UFO game data found — showing upload screen');
+          diagLog('No UFO game data found — showing upload screen', 'warn');
           showUploadScreen();
         }
       });
     }
-
     var toolbar      = document.getElementById('toolbar');
     var toolbarMenu  = document.getElementById('toolbar-menu');
     var toolbarToggle = document.getElementById('toolbar-toggle');
