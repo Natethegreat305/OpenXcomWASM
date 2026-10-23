@@ -402,7 +402,7 @@
         <div class="sublabel">or click to browse</div>
       </div>
       <input type="file" id="file-input" webkitdirectory multiple>
-      <div id="file-list"></div>
+      <div id="file-list" style="display: block !important;"></div>
       <button id="upload-btn">INSTALL GAME DATA</button>
       <div id="upload-progress"></div>
 
@@ -1328,39 +1328,48 @@ setInterval(function() {
      * the game or shows the upload screen.
      */
     function onEngineReady() {
+  var fileList = document.getElementById('file-list');
+  if (fileList) fileList.style.display = 'block';
+
   diagLog('Emscripten runtime initialized', 'ok');
-  if (typeof statusEl !== 'undefined' && statusEl) statusEl.textContent = 'Checking for game data...';
 
+  // 1. Ensure /UFO folder exists in VFS
   try {
-    mkdirp(PERSIST_DIR);
-    var idbfs = (Module.FS && Module.FS.filesystems && Module.FS.filesystems.IDBFS) || (typeof IDBFS !== 'undefined' ? IDBFS : null);
-    if (!idbfs) throw new Error('IDBFS driver not available yet.');
+    if (!Module.FS.analyzePath('/UFO').exists) {
+      Module.FS.mkdir('/UFO');
+    }
+  } catch(e) {}
 
-    Module.FS.mount(idbfs, {}, PERSIST_DIR);
-    diagLog('IDBFS mounted at ' + PERSIST_DIR, 'ok');
-  } catch(e) {
-    diagLog('IDBFS mount info: ' + e.message, 'warn');
+  // 2. Mount IDBFS driver at /UFO
+  var idbfs = (Module.FS && Module.FS.filesystems && Module.FS.filesystems.IDBFS) || (typeof IDBFS !== 'undefined' ? IDBFS : null);
+
+  if (idbfs) {
+    try {
+      Module.FS.mount(idbfs, {}, '/UFO');
+      diagLog('IDBFS mounted at /UFO', 'ok');
+    } catch(e) {
+      diagLog('IDBFS mount status: ' + e.message, 'warn');
+    }
+  } else {
+    diagLog('IDBFS driver unavailable', 'fail');
   }
 
-  if (typeof uploadProgress !== 'undefined' && uploadProgress) uploadProgress.textContent = 'Loading browser storage...';
+  diagLog('Reading browser IndexedDB storage into VFS...');
 
-  // MUST populate RAM from IndexedDB BEFORE calling hasUFOData()
+  // 3. Sync from IndexedDB into RAM VFS BEFORE checking for data
   Module.FS.syncfs(true, function(err) {
     if (err) {
-      diagLog('syncfs populate error: ' + err, 'warn');
+      diagLog('IDBFS populate error: ' + err, 'warn');
     } else {
-      diagLog('IndexedDB synced to RAM VFS', 'ok');
+      diagLog('IndexedDB synced to RAM VFS successfully!', 'ok');
     }
-    window._idbfsMounted = true;
 
-    // Now that RAM is populated, check if game files exist
+    // 4. Check if game files are loaded in RAM
     if (hasUFOData()) {
-      diagLog('Found persistent UFO data in storage — auto-launching!', 'ok');
-      if (typeof uploadProgress !== 'undefined' && uploadProgress) uploadProgress.textContent = 'Game data found! Launching...';
+      diagLog('UFO game data detected in storage — launching game!', 'ok');
       setTimeout(startGame, 500);
     } else {
       diagLog('No UFO game data found in VFS — showing upload screen', 'warn');
-      if (typeof uploadProgress !== 'undefined' && uploadProgress) uploadProgress.textContent = '';
       if (typeof showUploadScreen === 'function') showUploadScreen();
       else if (typeof showUploadUI === 'function') showUploadUI();
     }
