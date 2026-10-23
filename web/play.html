@@ -690,17 +690,30 @@
 
     /** Check whether REQUIRED_DIRS exist under UFO_DIR */
     function hasUFOData() {
-      try {
-        var entries = Module.FS.readdir(UFO_DIR);
-        var upper = entries.map(function(e) { return e.toUpperCase(); });
-        for (var i = 0; i < REQUIRED_DIRS.length; i++) {
-          if (upper.indexOf(REQUIRED_DIRS[i]) === -1) return false;
+  try {
+    var entries = Module.FS.readdir(UFO_DIR);
+    var upper = entries.map(function(e) { return e.toUpperCase(); });
+    diagLog('FS entries in UFO_DIR: ' + upper.join(', '));
+    for (var i = 0; i < REQUIRED_DIRS.length; i++) {
+      var req = REQUIRED_DIRS[i].toUpperCase();
+      var found = false;
+      for (var j = 0; j < upper.length; j++) {
+        if (upper[j] === req) {
+          found = true;
+          break;
         }
-        return true;
-      } catch(e) {
+      }
+      if (!found) {
+        diagLog('hasUFOData missing folder: ' + REQUIRED_DIRS[i], 'warn');
         return false;
       }
     }
+    return true;
+  } catch(e) {
+    diagLog('hasUFOData error: ' + e.message, 'warn');
+    return false;
+  }
+}
 
     /**
      * Deeper validation: check for key files that OpenXcom needs.
