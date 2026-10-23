@@ -1328,19 +1328,16 @@ setInterval(function() {
      * the game or shows the upload screen.
      */
     function onEngineReady() {
-  var fileList = document.getElementById('file-list');
-  if (fileList) fileList.style.display = 'block';
-
   diagLog('Emscripten runtime initialized', 'ok');
 
-  // 1. Ensure /UFO folder exists in VFS
+  // Ensure /UFO exists
   try {
     if (!Module.FS.analyzePath('/UFO').exists) {
       Module.FS.mkdir('/UFO');
     }
   } catch(e) {}
 
-  // 2. Mount IDBFS driver at /UFO
+  // Mount IDBFS at /UFO
   var idbfs = (Module.FS && Module.FS.filesystems && Module.FS.filesystems.IDBFS) || (typeof IDBFS !== 'undefined' ? IDBFS : null);
 
   if (idbfs) {
@@ -1352,28 +1349,48 @@ setInterval(function() {
     }
   } else {
     diagLog('IDBFS driver unavailable', 'fail');
+    return;
   }
 
-  diagLog('Reading browser IndexedDB storage into VFS...');
-
-  // 3. Sync from IndexedDB into RAM VFS BEFORE checking for data
+  // Sync IndexedDB -> RAM VFS on load
   Module.FS.syncfs(true, function(err) {
     if (err) {
       diagLog('IDBFS populate error: ' + err, 'warn');
     } else {
-      diagLog('IndexedDB synced to RAM VFS successfully!', 'ok');
+      diagLog('IndexedDB synced to RAM VFS', 'ok');
     }
 
-    // 4. Check if game files are loaded in RAM
+    // Check if game files are ready in RAM VFS
     if (hasUFOData()) {
-      diagLog('UFO game data detected in storage — launching game!', 'ok');
-      setTimeout(startGame, 500);
+      diagLog('Game data found! Hiding upload UI and starting game...', 'ok');
+      
+      // Hide upload UI so game canvas takes over
+      var uploadScreen = document.getElementById('upload-screen');
+      if (uploadScreen) uploadScreen.style.display = 'none';
+
+      var canvas = document.getElementById('canvas');
+      if (canvas) canvas.style.display = 'block';
+
+      setTimeout(startGame, 300);
     } else {
       diagLog('No UFO game data found in VFS — showing upload screen', 'warn');
-      if (typeof showUploadScreen === 'function') showUploadScreen();
-      else if (typeof showUploadUI === 'function') showUploadUI();
+      var uploadScreen = document.getElementById('upload-screen');
+      if (uploadScreen) uploadScreen.style.display = 'block';
     }
   });
+}
+
+// Ensure Module hooks onEngineReady when WASM is ready
+if (typeof Module !== 'undefined') {
+  var oldInit = Module.onRuntimeInitialized;
+  Module.onRuntimeInitialized = function() {
+    if (oldInit) oldInit();
+    onEngineReady();
+  };
+  // If Module is already ready before script attachment, run immediately
+  if (Module.calledRun || Module.runtimeInitialized) {
+    onEngineReady();
+  }
 }
     /* ------------------------------------------------------------------ */
     /*  Toolbar: export, import, reset                                    */
