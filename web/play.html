@@ -1330,7 +1330,7 @@ setInterval(function() {
     function onEngineReady() {
   diagLog('Emscripten runtime initialized', 'ok');
 
-  // Ensure /UFO exists
+  // Ensure /UFO folder exists
   try {
     if (!Module.FS.analyzePath('/UFO').exists) {
       Module.FS.mkdir('/UFO');
@@ -1347,12 +1347,9 @@ setInterval(function() {
     } catch(e) {
       diagLog('IDBFS mount status: ' + e.message, 'warn');
     }
-  } else {
-    diagLog('IDBFS driver unavailable', 'fail');
-    return;
   }
 
-  // Sync IndexedDB -> RAM VFS on load
+  // Restore files from browser storage into VFS
   Module.FS.syncfs(true, function(err) {
     if (err) {
       diagLog('IDBFS populate error: ' + err, 'warn');
@@ -1360,56 +1357,27 @@ setInterval(function() {
       diagLog('IndexedDB synced to RAM VFS', 'ok');
     }
 
-    // Check if game files are ready in RAM VFS
-    // Check if game files are ready in RAM VFS
     if (hasUFOData()) {
-      diagLog('Game data found! Auto-launching game...', 'ok');
-      
-      // Hide the upload screen container
+      diagLog('UFO game data found! Auto-launching...', 'ok');
+
+      // Hide upload overlay so canvas is visible
       var uploadScreen = document.getElementById('upload-screen');
       if (uploadScreen) uploadScreen.style.display = 'none';
 
-      // Unhide and reveal the game canvas container
       var canvas = document.getElementById('canvas');
       if (canvas) {
         canvas.style.display = 'block';
         canvas.style.visibility = 'visible';
       }
 
-      var canvasContainer = document.getElementById('canvas-container') || document.getElementById('game-container');
-      if (canvasContainer) {
-        canvasContainer.style.display = 'block';
-        canvasContainer.style.visibility = 'visible';
-      }
-
-      // Trigger engine start
-      setTimeout(function() {
-        if (typeof startGame === 'function') {
-          startGame();
-        } else if (Module.callMain) {
-          Module.callMain([]);
-        }
-      }, 300);
+      // Launch engine cleanly
+      startGame();
     } else {
-    } else {
-      diagLog('No UFO game data found in VFS — showing upload screen', 'warn');
+      diagLog('No game data found — showing upload screen', 'warn');
       var uploadScreen = document.getElementById('upload-screen');
       if (uploadScreen) uploadScreen.style.display = 'block';
     }
   });
-}
-
-// Ensure Module hooks onEngineReady when WASM is ready
-if (typeof Module !== 'undefined') {
-  var oldInit = Module.onRuntimeInitialized;
-  Module.onRuntimeInitialized = function() {
-    if (oldInit) oldInit();
-    onEngineReady();
-  };
-  // If Module is already ready before script attachment, run immediately
-  if (Module.calledRun || Module.runtimeInitialized) {
-    onEngineReady();
-  }
 }
     /* ------------------------------------------------------------------ */
     /*  Toolbar: export, import, reset                                    */
