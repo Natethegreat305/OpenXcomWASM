@@ -1191,136 +1191,82 @@
     }
 
     function startGame() {
-      diagLog('startGame() called');
-      uploadScreen.style.display = 'none';
-      canvasEl.style.display = 'block';
-      toolbar.style.display = 'block';
-      statusEl.textContent = 'Starting OpenXcom...';
-      statusEl.style.display = 'block';
+  diagLog('startGame() called');
 
-      /* Resume any suspended AudioContext (browsers block autoplay without
-         a user gesture). This click/tap that triggers startGame counts. */
-      try {
-        var ac = window.AudioContext || window.webkitAudioContext;
-        if (ac && Module && Module.SDL && Module.SDL.audioContext) {
-          if (Module.SDL.audioContext.state === 'suspended') {
-            Module.SDL.audioContext.resume().then(function() {
-              diagLog('AudioContext resumed', 'ok');
-            });
-          }
-        }
-      } catch(ignore) {}
-
-      try {
-        diagLog('Calling Module.callMain()...');
-        Module.callMain();
-        // Periodically flush virtual memory filesystem to IndexedDB every 3 seconds
-setInterval(function() {
-  if (window._idbfsMounted && typeof Module !== 'undefined' && Module.FS) {
-    Module.FS.syncfs(false, function(err) {
-      if (err) console.warn('Auto-save sync error:', err);
-    });
+  // Prevent double-launching the WebAssembly runtime
+  if (window._gameStarted) {
+    diagLog('Game already started, skipping re-initialization', 'ok');
+    return;
   }
-}, 3000);
-        diagLog('Module.callMain() returned successfully', 'ok');
+  window._gameStarted = true;
 
-        /* Suppress browser context menu on right-click so it doesn't
-           interfere with right-click-drag scrolling in the game. */
-        canvasEl.addEventListener('contextmenu', function(e) {
-          e.preventDefault();
+  // Unhide UI elements
+  if (typeof uploadScreen !== 'undefined' && uploadScreen) uploadScreen.style.display = 'none';
+  if (typeof canvasEl !== 'undefined' && canvasEl) {
+    canvasEl.style.display = 'block';
+    canvasEl.style.visibility = 'visible';
+  }
+  if (typeof toolbar !== 'undefined' && toolbar) toolbar.style.display = 'block';
+  if (typeof statusEl !== 'undefined' && statusEl) {
+    statusEl.textContent = 'Starting OpenXcom...';
+    statusEl.style.display = 'block';
+  }
+
+  /* Resume AudioContext */
+  try {
+    var ac = window.AudioContext || window.webkitAudioContext;
+    if (ac && Module && Module.SDL && Module.SDL.audioContext) {
+      if (Module.SDL.audioContext.state === 'suspended') {
+        Module.SDL.audioContext.resume().then(function() {
+          diagLog('AudioContext resumed', 'ok');
         });
-      } catch(e) {
-        diagLog('callMain() threw: ' + (e.message || e), 'fail');
-        showError(
-          'GAME FAILED TO START',
-          'OpenXcom crashed during startup. This can happen if game data files are incomplete or corrupted.',
-          String(e.message || e) + '\n\n' + (e.stack || '')
-        );
-        return;
       }
+    }
+  } catch(ignore) {}
 
-      /* Log canvas state right after callMain */
-      diagLog('Canvas intrinsic size: ' + canvasEl.width + 'x' + canvasEl.height);
-      diagLog('Canvas CSS size: ' + canvasEl.style.width + ' x ' + canvasEl.style.height);
-      diagLog('Canvas display: ' + canvasEl.style.display);
+  /* Start Game Engine */
+  try {
+    diagLog('Calling Module.callMain()...');
+    Module.callMain([]);
+    diagLog('Module.callMain() returned successfully', 'ok');
 
-      /* Check what GL context the canvas has */
-      try {
-        var gl = canvasEl.getContext('webgl2') || canvasEl.getContext('webgl');
-        if (gl) {
-          diagLog('Canvas has WebGL context: ' + gl.getParameter(gl.VERSION), 'ok');
-          var vp = gl.getParameter(gl.VIEWPORT);
-          diagLog('WebGL viewport: ' + vp[0] + ',' + vp[1] + ' ' + vp[2] + 'x' + vp[3]);
-        } else {
-          /* SDL2 might be using 2D canvas instead */
-          var ctx2d = canvasEl.getContext('2d');
-          if (ctx2d) {
-            diagLog('Canvas has 2D context (no WebGL)');
-          } else {
-            diagLog('Canvas has no rendering context!', 'warn');
-          }
-        }
-      } catch(e) {
-        diagLog('Could not inspect canvas context: ' + e.message, 'warn');
+    // Auto-save: sync VFS changes back to IndexedDB every 3 seconds
+    setInterval(function() {
+      if (window._idbfsMounted && typeof Module !== 'undefined' && Module.FS) {
+        Module.FS.syncfs(false, function(err) {
+          if (err) console.warn('Auto-save sync error:', err);
+        });
       }
+    }, 3000);
 
-      /* Log any engine stderr captured so far */
-      if (_engineErrors.length > 0) {
-        diagLog('Engine stderr (' + _engineErrors.length + ' lines): ' + _engineErrors.slice(-5).join(' | '), 'warn');
-      } else {
-        diagLog('No engine stderr output', 'ok');
-      }
-
-      statusEl.textContent = 'Running...';
-      setTimeout(function() { statusEl.style.display = 'none'; }, 2000);
-      setTimeout(fitCanvas, 200);
-      setTimeout(fitCanvas, 1000);
-
-      /* Watchdog: check canvas state at 3s, 8s, 15s */
-      [3000, 8000, 15000].forEach(function(delay) {
-        setTimeout(function() {
-          var w = canvasEl.width, h = canvasEl.height;
-          diagLog('Watchdog @' + (delay/1000) + 's — canvas: ' + w + 'x' + h +
-            ', display: ' + canvasEl.style.display +
-            ', CSS: ' + canvasEl.style.width + ' x ' + canvasEl.style.height);
-
-          if (w === 0 || h === 0) {
-            diagLog('Canvas has zero dimensions at ' + (delay/1000) + 's!', 'fail');
-            if (delay >= 8000) {
-              showError(
-                'BLACK SCREEN',
-                'The game engine started but the canvas has zero dimensions. The game may have failed to initialize its display.',
-                'Canvas size: ' + w + 'x' + h + '\n\nRecent engine output:\n' + _engineErrors.slice(-10).join('\n')
-              );
-            }
-            return;
-          }
-
-          /* Try to read pixels via WebGL to check if anything is being drawn */
-          try {
-            var gl = canvasEl.getContext('webgl2') || canvasEl.getContext('webgl');
-            if (gl) {
-              var pixels = new Uint8Array(4 * 4);  /* Read a small 2x2 patch from center */
-              gl.readPixels(
-                Math.floor(w/2), Math.floor(h/2), 2, 2,
-                gl.RGBA, gl.UNSIGNED_BYTE, pixels
-              );
-              var allZero = true;
-              for (var i = 0; i < pixels.length; i++) {
-                if (pixels[i] !== 0) { allZero = false; break; }
-              }
-              if (allZero && delay >= 8000) {
-                diagLog('Canvas center pixels are all black at ' + (delay/1000) + 's', 'warn');
-                statusEl.textContent = 'Game may be loading... if the screen stays black, try reloading.';
-                statusEl.style.display = 'block';
-              } else if (!allZero) {
-                diagLog('Canvas is rendering content at ' + (delay/1000) + 's', 'ok');
-              }
-            }
-          } catch(e) { /* ignore readPixels errors */ }
-        }, delay);
+    /* Prevent right-click context menu on game canvas */
+    if (typeof canvasEl !== 'undefined' && canvasEl) {
+      canvasEl.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
       });
     }
+  } catch(e) {
+    diagLog('callMain() threw: ' + (e.message || e), 'fail');
+    if (typeof showError === 'function') {
+      showError(
+        'GAME FAILED TO START',
+        'OpenXcom crashed during startup.',
+        String(e.message || e) + '\n\n' + (e.stack || '')
+      );
+    }
+    return;
+  }
+
+  if (typeof statusEl !== 'undefined' && statusEl) {
+    statusEl.textContent = 'Running...';
+    setTimeout(function() { statusEl.style.display = 'none'; }, 2000);
+  }
+
+  if (typeof fitCanvas === 'function') {
+    setTimeout(fitCanvas, 200);
+    setTimeout(fitCanvas, 1000);
+  }
+}
 
     /**
      * Called once the Emscripten runtime is ready.
