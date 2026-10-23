@@ -999,10 +999,19 @@
           }
 
           uploadProgress.textContent = 'Saving to browser storage...';
-          syncToIDB(function() {
-            uploadProgress.textContent = 'Done!';
-            setTimeout(startGame, 500);
-          });
+diagLog('Starting syncToIDB for game data persistence...');
+
+Module.FS.syncfs(false, function(err) {
+  if (err) {
+    diagLog('IDBFS persist error: ' + err, 'fail');
+    uploadProgress.textContent = 'Save failed: ' + err;
+    showError('PERSISTENCE ERROR', 'Failed to write game files to browser storage.', String(err));
+  } else {
+    diagLog('IDBFS persist successful!', 'ok');
+    uploadProgress.textContent = 'Done!';
+    setTimeout(startGame, 800);
+  }
+});
           return;
         }
         var item = pendingFiles[done];
@@ -1190,6 +1199,14 @@
       try {
         diagLog('Calling Module.callMain()...');
         Module.callMain();
+        // Periodically flush virtual memory filesystem to IndexedDB every 3 seconds
+setInterval(function() {
+  if (window._idbfsMounted && typeof Module !== 'undefined' && Module.FS) {
+    Module.FS.syncfs(false, function(err) {
+      if (err) console.warn('Auto-save sync error:', err);
+    });
+  }
+}, 3000);
         diagLog('Module.callMain() returned successfully', 'ok');
 
         /* Suppress browser context menu on right-click so it doesn't
