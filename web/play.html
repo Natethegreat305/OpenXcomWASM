@@ -1027,15 +1027,17 @@ Module.FS.syncfs(false, function(err) {
 });
           return;
         }
-        var item = pendingFiles[done];
         var reader = new FileReader();
-        reader.onload = function() {
-          var fullPath = UFO_DIR + '/' + item.path;
-          /* Ensure parent directories exist */
-          var dirParts = fullPath.split('/');
-          dirParts.pop(); /* remove filename */
-          mkdirp(dirParts.join('/'));
-          Module.FS.writeFile(fullPath, new Uint8Array(reader.result));
+reader.onload = function() {
+  // Strip outer folder prefix (e.g., "xcomufo/") if present
+  var cleanPath = item.path.replace(/^[^\/]+\//, '');
+  var fullPath = UFO_DIR + '/' + cleanPath;
+
+  /* Ensure parent directories exist */
+  var dirParts = fullPath.split('/');
+  dirParts.pop(); /* remove filename */
+  mkdirp(dirParts.join('/'));
+  Module.FS.writeFile(fullPath, new Uint8Array(reader.result));
           done++;
           if (done % 20 === 0 || done === total) {
             uploadProgress.textContent = 'Installing... ' + done + '/' + total;
