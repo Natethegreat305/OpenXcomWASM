@@ -1026,8 +1026,8 @@
       var reader = new FileReader();
       reader.onload = function() {
         var rawPath = currentItem.path || currentItem.file.name;
-        // Clean off any parent root directory (e.g. "xcomufo/")
-        var cleanPath = rawPath.replace(/^[^\/]+\//, '');
+        // Only strip top-level container folders like xcomufo/ or XCOM/
+        var cleanPath = rawPath.replace(/^(xcomufo|xcom|ufo)\//i, '');
         var fullPath = UFO_DIR + '/' + cleanPath;
 
         /* Ensure parent directories exist */
