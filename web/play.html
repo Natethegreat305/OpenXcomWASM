@@ -985,69 +985,69 @@
       var total = pendingFiles.length;
 
       function writeNext() {
-        if (done >= total) {
-          uploadProgress.textContent = 'Validating game data...';
-          diagLog('Upload complete — validating game data...');
+      if (done >= total) {
+        uploadProgress.textContent = 'Validating game data...';
+        diagLog('Upload complete — validating game data...');
 
-          var validation = validateGameData();
-          diagLog('Validation: ' + validation.found.length + '/' + KEY_FILES.length +
-            ' key files found, ' + validation.missing.length + ' missing',
-            validation.ok ? 'ok' : 'warn');
+        var validation = validateGameData();
+        diagLog('Validation: ' + validation.found.length + '/' + KEY_FILES.length +
+          ' key files found, ' + validation.missing.length + ' missing',
+          validation.ok ? 'ok' : 'warn');
 
-          if (!validation.ok) {
-            diagLog('Validation failed: ' + validation.details, 'fail');
-            uploadProgress.style.display = 'none';
-            showError(
-              'INCOMPLETE GAME DATA',
-              'The uploaded files appear to be missing key X-COM data files. ' +
-              'Make sure you selected the correct folder — it should directly contain subfolders like GEODATA, GEOGRAPH, MAPS, SOUND, etc.',
-              validation.details +
-              '\n\nCommon fixes:\n' +
-              '- Select the XCOM/ folder, not its parent directory\n' +
-              '- On Steam: look inside steamapps/common/XCom UFO Defense/XCOM/\n' +
-              '- On GOG: look inside the X-COM installation folder\n' +
-              '- Make sure the game is fully installed (not just a shortcut)'
-            );
-            return;
-          }
-
-          uploadProgress.textContent = 'Saving to browser storage...';
-diagLog('Starting syncToIDB for game data persistence...');
-
-Module.FS.syncfs(false, function(err) {
-  if (err) {
-    diagLog('IDBFS persist error: ' + err, 'fail');
-    uploadProgress.textContent = 'Save failed: ' + err;
-    showError('PERSISTENCE ERROR', 'Failed to write game files to browser storage.', String(err));
-  } else {
-    diagLog('IDBFS persist successful!', 'ok');
-    uploadProgress.textContent = 'Done!';
-    setTimeout(startGame, 800);
-  }
-});
+        if (!validation.ok) {
+          diagLog('Validation failed: ' + validation.details, 'fail');
+          uploadProgress.style.display = 'none';
+          showError(
+            'INCOMPLETE GAME DATA',
+            'The uploaded files appear to be missing key X-COM data files.',
+            validation.details
+          );
           return;
         }
-        var reader = new FileReader();
-reader.onload = function() {
-  // Strip outer folder prefix (e.g., "xcomufo/") if present
-  var cleanPath = item.path.replace(/^[^\/]+\//, '');
-  var fullPath = UFO_DIR + '/' + cleanPath;
 
-  /* Ensure parent directories exist */
-  var dirParts = fullPath.split('/');
-  dirParts.pop(); /* remove filename */
-  mkdirp(dirParts.join('/'));
-  Module.FS.writeFile(fullPath, new Uint8Array(reader.result));
-          done++;
-          if (done % 20 === 0 || done === total) {
-            uploadProgress.textContent = 'Installing... ' + done + '/' + total;
+        uploadProgress.textContent = 'Saving to browser storage...';
+        diagLog('Starting syncToIDB for game data persistence...');
+
+        Module.FS.syncfs(false, function(err) {
+          if (err) {
+            diagLog('IDBFS persist error: ' + err, 'fail');
+            uploadProgress.textContent = 'Save failed: ' + err;
+            showError('PERSISTENCE ERROR', 'Failed to write game files to browser storage.', String(err));
+          } else {
+            diagLog('IDBFS persist successful!', 'ok');
+            uploadProgress.textContent = 'Done!';
+            setTimeout(startGame, 800);
           }
-          /* Yield to the browser periodically */
-          if (done % 50 === 0) setTimeout(writeNext, 0);
-          else writeNext();
-        };
-        reader.readAsArrayBuffer(item.file);
+        });
+        return;
       }
+
+      var currentItem = pendingFiles[done];
+      var reader = new FileReader();
+      reader.onload = function() {
+        var rawPath = currentItem.path || currentItem.file.name;
+        // Clean off any parent root directory (e.g. "xcomufo/")
+        var cleanPath = rawPath.replace(/^[^\/]+\//, '');
+        var fullPath = UFO_DIR + '/' + cleanPath;
+
+        /* Ensure parent directories exist */
+        var dirParts = fullPath.split('/');
+        dirParts.pop(); /* remove filename */
+        mkdirp(dirParts.join('/'));
+
+        Module.FS.writeFile(fullPath, new Uint8Array(reader.result));
+        done++;
+
+        if (done % 20 === 0 || done === total) {
+          uploadProgress.textContent = 'Installing... ' + done + '/' + total;
+        }
+
+        /* Yield to browser periodically */
+        if (done % 50 === 0) setTimeout(writeNext, 0);
+        else writeNext();
+      };
+      reader.readAsArrayBuffer(currentItem.file);
+    }
       writeNext();
     });
 
