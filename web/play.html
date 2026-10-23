@@ -1333,52 +1333,39 @@ setInterval(function() {
 
   try {
     mkdirp(PERSIST_DIR);
-    
-    // Safely check for IDBFS driver availability
     var idbfs = (Module.FS && Module.FS.filesystems && Module.FS.filesystems.IDBFS) || (typeof IDBFS !== 'undefined' ? IDBFS : null);
-    
-    if (!idbfs) {
-      throw new Error('IDBFS driver is not available in Emscripten runtime yet.');
-    }
+    if (!idbfs) throw new Error('IDBFS driver not available yet.');
 
     Module.FS.mount(idbfs, {}, PERSIST_DIR);
     diagLog('IDBFS mounted at ' + PERSIST_DIR, 'ok');
   } catch(e) {
-    diagLog('IDBFS mount status: ' + e.message, 'warn');
+    diagLog('IDBFS mount info: ' + e.message, 'warn');
   }
 
   if (typeof uploadProgress !== 'undefined' && uploadProgress) uploadProgress.textContent = 'Loading browser storage...';
 
-  syncFromIDB(function(err) {
+  // MUST populate RAM from IndexedDB BEFORE calling hasUFOData()
+  Module.FS.syncfs(true, function(err) {
     if (err) {
-      diagLog('syncfs(populate) error: ' + err, 'warn');
+      diagLog('syncfs populate error: ' + err, 'warn');
     } else {
-      diagLog('IndexedDB synced to VFS', 'ok');
+      diagLog('IndexedDB synced to RAM VFS', 'ok');
     }
     window._idbfsMounted = true;
 
-    if (window._pendingRestoreSaves || window._pendingRestoreLoose) {
-      writePendingRestores();
-    }
-
+    // Now that RAM is populated, check if game files exist
     if (hasUFOData()) {
-      diagLog('UFO game data found in storage', 'ok');
-      var validation = validateGameData();
-      diagLog('Data validation: ' + validation.found.length + '/' + KEY_FILES.length +
-        ' key files' + (validation.missing.length > 0 ? ', missing: ' + validation.missing.join(', ') : ''),
-        validation.ok ? 'ok' : 'warn');
-      
+      diagLog('Found persistent UFO data in storage — auto-launching!', 'ok');
       if (typeof uploadProgress !== 'undefined' && uploadProgress) uploadProgress.textContent = 'Game data found! Launching...';
       setTimeout(startGame, 500);
     } else {
-      diagLog('No UFO game data found — showing upload screen', 'warn');
+      diagLog('No UFO game data found in VFS — showing upload screen', 'warn');
       if (typeof uploadProgress !== 'undefined' && uploadProgress) uploadProgress.textContent = '';
       if (typeof showUploadScreen === 'function') showUploadScreen();
       else if (typeof showUploadUI === 'function') showUploadUI();
     }
   });
 }
-
     /* ------------------------------------------------------------------ */
     /*  Toolbar: export, import, reset                                    */
     /* ------------------------------------------------------------------ */
