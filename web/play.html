@@ -1312,6 +1312,8 @@
         Module.FS.mount(idbfs, {}, PERSIST_DIR);
         diagLog('IDBFS mounted at ' + PERSIST_DIR, 'ok');
       } catch(e) {
+        diagLog('IDBFS mount failed: ' + e.message, 'warn');
+      }
 
       syncFromIDB(function(err) {
         if (err) {
