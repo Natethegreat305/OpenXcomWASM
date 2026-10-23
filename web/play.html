@@ -1361,17 +1361,36 @@ setInterval(function() {
     }
 
     // Check if game files are ready in RAM VFS
+    // Check if game files are ready in RAM VFS
     if (hasUFOData()) {
-      diagLog('Game data found! Hiding upload UI and starting game...', 'ok');
+      diagLog('Game data found! Auto-launching game...', 'ok');
       
-      // Hide upload UI so game canvas takes over
+      // Hide the upload screen container
       var uploadScreen = document.getElementById('upload-screen');
       if (uploadScreen) uploadScreen.style.display = 'none';
 
+      // Unhide and reveal the game canvas container
       var canvas = document.getElementById('canvas');
-      if (canvas) canvas.style.display = 'block';
+      if (canvas) {
+        canvas.style.display = 'block';
+        canvas.style.visibility = 'visible';
+      }
 
-      setTimeout(startGame, 300);
+      var canvasContainer = document.getElementById('canvas-container') || document.getElementById('game-container');
+      if (canvasContainer) {
+        canvasContainer.style.display = 'block';
+        canvasContainer.style.visibility = 'visible';
+      }
+
+      // Trigger engine start
+      setTimeout(function() {
+        if (typeof startGame === 'function') {
+          startGame();
+        } else if (Module.callMain) {
+          Module.callMain([]);
+        }
+      }, 300);
+    } else {
     } else {
       diagLog('No UFO game data found in VFS — showing upload screen', 'warn');
       var uploadScreen = document.getElementById('upload-screen');
