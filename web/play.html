@@ -1326,8 +1326,39 @@ setInterval(function() {
      * the game or shows the upload screen.
      */
     function onEngineReady() {
-      diagLog('Emscripten runtime initialized', 'ok');
-      statusEl.textContent = 'Checking for game data...';
+  diagLog('Emscripten runtime initialized', 'ok');
+  statusEl.textContent = 'Checking for game data...';
+
+  try {
+    diagLog('Mounting IDBFS persistent storage...');
+    Module.FS.mkdir(PERSIST_DIR);
+    Module.FS.mount(idbfs, {}, PERSIST_DIR);
+    diagLog('IDBFS mounted at ' + PERSIST_DIR, 'ok');
+  } catch(e) {
+    diagLog('IDBFS mount warning/fail: ' + e.message, 'warn');
+  }
+
+  uploadProgress.textContent = 'Loading browser storage...';
+  
+  syncFromIDB(function(err) {
+    if (err) {
+      diagLog('syncFromIDB error: ' + err, 'warn');
+    } else {
+      diagLog('syncFromIDB completed successfully', 'ok');
+    }
+
+    // Check if UFO data exists ONLY after IDBFS has finished syncing into RAM
+    if (hasUFOData()) {
+      diagLog('Found persistent UFO data in IDBFS — auto-launching!', 'ok');
+      uploadProgress.textContent = 'Game data found! Launching...';
+      setTimeout(startGame, 500);
+    } else {
+      diagLog('No valid UFO data found in IDBFS. Showing upload UI.', 'warn');
+      uploadProgress.textContent = '';
+      showUploadUI();
+    }
+  });
+}
 
       try {
         mkdirp(PERSIST_DIR);
