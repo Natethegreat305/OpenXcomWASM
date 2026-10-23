@@ -1276,14 +1276,12 @@
     function onEngineReady() {
   diagLog('Emscripten runtime initialized', 'ok');
 
-  // Ensure /UFO folder exists
   try {
     if (!Module.FS.analyzePath('/UFO').exists) {
       Module.FS.mkdir('/UFO');
     }
   } catch(e) {}
 
-  // Mount IDBFS at /UFO
   var idbfs = (Module.FS && Module.FS.filesystems && Module.FS.filesystems.IDBFS) || (typeof IDBFS !== 'undefined' ? IDBFS : null);
 
   if (idbfs) {
@@ -1295,34 +1293,32 @@
     }
   }
 
-  // Restore files from browser storage into VFS
+  // Sync IndexedDB storage into RAM VFS
   Module.FS.syncfs(true, function(err) {
     if (err) {
       diagLog('IDBFS populate error: ' + err, 'warn');
     } else {
       diagLog('IndexedDB synced to RAM VFS', 'ok');
     }
+    window._idbfsMounted = true;
 
-    if (hasUFOData()) {
-      diagLog('UFO game data found! Auto-launching...', 'ok');
-
-      // Hide upload overlay so canvas is visible
-      var uploadScreen = document.getElementById('upload-screen');
-      if (uploadScreen) uploadScreen.style.display = 'none';
-
-      var canvas = document.getElementById('canvas');
-      if (canvas) {
-        canvas.style.display = 'block';
-        canvas.style.visibility = 'visible';
+    // Retry check up to 3 times to allow the virtual filesystem to register files
+    var attempts = 0;
+    function checkAndLaunch() {
+      attempts++;
+      if (hasUFOData()) {
+        diagLog('Game data detected in storage — launching game!', 'ok');
+        startGame();
+      } else if (attempts < 3) {
+        setTimeout(checkAndLaunch, 300);
+      } else {
+        diagLog('No game data found — showing upload screen', 'warn');
+        if (typeof showUploadScreen === 'function') showUploadScreen();
+        else if (typeof uploadScreen !== 'undefined' && uploadScreen) uploadScreen.style.display = 'block';
       }
-
-      // Launch engine cleanly
-      startGame();
-    } else {
-      diagLog('No game data found — showing upload screen', 'warn');
-      var uploadScreen = document.getElementById('upload-screen');
-      if (uploadScreen) uploadScreen.style.display = 'block';
     }
+
+    checkAndLaunch();
   });
 }
     /* ------------------------------------------------------------------ */
