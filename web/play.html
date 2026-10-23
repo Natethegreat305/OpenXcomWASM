@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <script src="https://cdn.jsdelivr.net/npm/coi-serviceworker/coi-serviceworker.min.js"></script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Play OpenXcom | playxcom.online</title>
@@ -34,7 +33,7 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; background: #000; overflow: hidden; font-family: var(--sans); }
 
-    /* ---- Game canvas (hidden until the game starts) ---- */
+    /* ---- Game canvas ---- */
     #canvas {
       display: none;
       position: absolute;
@@ -67,7 +66,6 @@
       z-index: 20;
       overflow-y: auto;
     }
-    /* Scanline overlay on upload screen */
     #upload-screen::after {
       content: '';
       position: fixed;
@@ -194,7 +192,6 @@
       font-family: var(--mono);
       color: var(--green);
     }
-    /* Upload screen footer */
     #upload-footer {
       border-top: 1px solid var(--border);
       padding: 24px 20px;
@@ -206,7 +203,7 @@
     #upload-footer a { color: var(--green-dim); text-decoration: none; }
     #upload-footer a:hover { color: var(--green); }
 
-    /* ---- Error / diagnostic overlay ---- */
+    /* ---- Error overlay ---- */
     #error-overlay {
       display: none;
       position: fixed;
@@ -284,7 +281,7 @@
     #error-overlay .btn-reset-err { background: #333; color: var(--text); }
     #error-overlay .btn-reset-err:hover { background: #444; }
 
-    /* ---- Toolbar (visible during gameplay) ---- */
+    /* ---- Toolbar ---- */
     #toolbar {
       display: none;
       position: fixed;
@@ -329,7 +326,7 @@
     #toolbar-menu .danger:hover { background: rgba(255,50,50,0.15); }
     #toolbar-menu .sep { height: 1px; background: #333; margin: 4px 0; }
 
-    /* ---- Modal overlay for import/confirm ---- */
+    /* ---- Modals ---- */
     .modal-overlay {
       display: none;
       position: fixed;
@@ -378,7 +375,7 @@
   <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
   <div id="status">Loading engine...</div>
 
-  <!-- Upload screen shown when UFO data is not yet in IndexedDB -->
+  <!-- Upload screen -->
   <div id="upload-screen">
     <div class="inner">
       <a href="index.html" class="back-link">Back to playxcom.online</a>
@@ -402,7 +399,7 @@
         <div class="sublabel">or click to browse</div>
       </div>
       <input type="file" id="file-input" webkitdirectory multiple>
-      <div id="file-list" style="display: block !important;"></div>
+      <div id="file-list"></div>
       <button id="upload-btn">INSTALL GAME DATA</button>
       <div id="upload-progress"></div>
 
@@ -414,7 +411,6 @@
         <strong>GOG (Windows):</strong> <code>C:\GOG Games\X-COM UFO Defense\</code>
       </p>
 
-      <!-- Optional: restore saves alongside game data -->
       <div id="restore-saves-section" style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border);">
         <p style="color: var(--text-dim); font-size: 14px; margin-bottom: 12px;">
           <strong style="color: var(--text);">Have a save backup?</strong>
@@ -436,7 +432,7 @@
     </div>
   </div>
 
-  <!-- Toolbar (visible during gameplay) -->
+  <!-- Toolbar -->
   <div id="toolbar">
     <div id="toolbar-toggle">&#9881;</div>
     <div id="toolbar-menu">
@@ -466,7 +462,6 @@
   <!-- Reset confirm modal -->
   <div class="modal-overlay" id="reset-modal">
     <div class="modal-box">
-      <!-- Step 1: initial confirmation -->
       <div id="reset-step1">
         <h3>Reset All Data</h3>
         <p>This will <strong>permanently delete</strong> all uploaded game data
@@ -477,7 +472,6 @@
           <button class="btn-danger" id="reset-confirm">Delete Everything</button>
         </div>
       </div>
-      <!-- Step 2: extra warning when save files exist -->
       <div id="reset-step2" style="display:none;">
         <h3>&#9888;&#65039; You have saved games!</h3>
         <p id="reset-save-count"></p>
@@ -506,13 +500,9 @@
     </div>
   </div>
 
-  <!-- JSZip for save export/import -->
   <script src="jszip.min.js"></script>
 
   <script>
-    /* ------------------------------------------------------------------ */
-    /*  Globals                                                           */
-    /* ------------------------------------------------------------------ */
     var statusEl        = document.getElementById('status');
     var canvasEl        = document.getElementById('canvas');
     var uploadScreen    = document.getElementById('upload-screen');
@@ -526,9 +516,6 @@
     var UFO_DIR         = PERSIST_DIR + '/UFO';
     var REQUIRED_DIRS   = ['GEODATA','GEOGRAPH','MAPS','ROUTES','SOUND','TERRAIN','UFOGRAPH','UNITS'];
 
-    /* ------------------------------------------------------------------ */
-    /*  Diagnostic log                                                    */
-    /* ------------------------------------------------------------------ */
     var _diagLog = [];
     function diagLog(msg, level) {
       level = level || 'info';
@@ -548,9 +535,6 @@
       }).join('\n');
     }
 
-    /* ------------------------------------------------------------------ */
-    /*  Error overlay                                                     */
-    /* ------------------------------------------------------------------ */
     function showError(title, message, detail) {
       var overlay = document.getElementById('error-overlay');
       document.getElementById('error-title').textContent = title || 'SOMETHING WENT WRONG';
@@ -568,7 +552,6 @@
       location.reload();
     });
 
-    /* Global error handler to catch unhandled exceptions */
     window.addEventListener('error', function(event) {
       diagLog('Uncaught error: ' + event.message + ' at ' + (event.filename || '?') + ':' + (event.lineno || '?'), 'fail');
       if (document.getElementById('error-overlay').style.display !== 'block') {
@@ -581,13 +564,9 @@
       diagLog('Unhandled promise rejection: ' + reason, 'fail');
     });
 
-    /* ------------------------------------------------------------------ */
-    /*  Pre-flight capability checks                                      */
-    /* ------------------------------------------------------------------ */
     function runPreflightChecks() {
       var allGood = true;
 
-      /* WebAssembly */
       if (typeof WebAssembly === 'object' && typeof WebAssembly.instantiate === 'function') {
         diagLog('WebAssembly supported', 'ok');
       } else {
@@ -595,7 +574,6 @@
         allGood = false;
       }
 
-      /* IndexedDB */
       if (window.indexedDB) {
         diagLog('IndexedDB available', 'ok');
       } else {
@@ -603,7 +581,6 @@
         allGood = false;
       }
 
-      /* Canvas / WebGL */
       try {
         var testCanvas = document.createElement('canvas');
         var gl = testCanvas.getContext('webgl') || testCanvas.getContext('webgl2') || testCanvas.getContext('experimental-webgl');
@@ -616,18 +593,6 @@
         diagLog('WebGL check failed: ' + e.message, 'warn');
       }
 
-      /* Memory — rough check for 128MB+ */
-      try {
-        var testBuf = new ArrayBuffer(128 * 1024 * 1024);
-        if (testBuf.byteLength === 128 * 1024 * 1024) {
-          diagLog('Memory allocation test passed (128 MB)', 'ok');
-        }
-        testBuf = null;
-      } catch(e) {
-        diagLog('Memory allocation test failed — may not have enough RAM', 'warn');
-      }
-
-      /* Browser info */
       diagLog('User agent: ' + navigator.userAgent, 'info');
       diagLog('Platform: ' + (navigator.platform || 'unknown'), 'info');
 
@@ -635,19 +600,15 @@
         showError(
           'BROWSER NOT SUPPORTED',
           'Your browser is missing features required to run OpenXcom.',
-          'See the startup log below for details. Try a recent version of Chrome, Firefox, Edge, or Safari.'
+          'See the startup log below for details.'
         );
       }
 
       return allGood;
     }
 
-    /* Files selected by the user (array of {path, file} objects) */
     var pendingFiles = [];
 
-    /* ------------------------------------------------------------------ */
-    /*  Canvas scaling                                                    */
-    /* ------------------------------------------------------------------ */
     function fitCanvas() {
       var cw = canvasEl.width, ch = canvasEl.height;
       if (!cw || !ch) return;
@@ -662,15 +623,12 @@
     window.addEventListener('resize', fitCanvas);
     canvasEl.addEventListener('click', function() { canvasEl.focus(); });
 
-    /* ------------------------------------------------------------------ */
-    /*  IDBFS helpers                                                     */
-    /* ------------------------------------------------------------------ */
     function mkdirp(path) {
       var parts = path.split('/').filter(Boolean);
       var cur = '';
       for (var i = 0; i < parts.length; i++) {
         cur += '/' + parts[i];
-        try { Module.FS.mkdir(cur); } catch(e) { /* already exists */ }
+        try { Module.FS.mkdir(cur); } catch(e) {}
       }
     }
 
@@ -688,37 +646,19 @@
       });
     }
 
-    /** Check whether REQUIRED_DIRS exist under UFO_DIR */
     function hasUFOData() {
-  try {
-    var entries = Module.FS.readdir(UFO_DIR);
-    var upper = entries.map(function(e) { return e.toUpperCase(); });
-    diagLog('FS entries in UFO_DIR: ' + upper.join(', '));
-    for (var i = 0; i < REQUIRED_DIRS.length; i++) {
-      var req = REQUIRED_DIRS[i].toUpperCase();
-      var found = false;
-      for (var j = 0; j < upper.length; j++) {
-        if (upper[j] === req) {
-          found = true;
-          break;
+      try {
+        var entries = Module.FS.readdir(UFO_DIR);
+        var upper = entries.map(function(e) { return e.toUpperCase(); });
+        for (var i = 0; i < REQUIRED_DIRS.length; i++) {
+          if (upper.indexOf(REQUIRED_DIRS[i]) === -1) return false;
         }
-      }
-      if (!found) {
-        diagLog('hasUFOData missing folder: ' + REQUIRED_DIRS[i], 'warn');
+        return true;
+      } catch(e) {
         return false;
       }
     }
-    return true;
-  } catch(e) {
-    diagLog('hasUFOData error: ' + e.message, 'warn');
-    return false;
-  }
-}
 
-    /**
-     * Deeper validation: check for key files that OpenXcom needs.
-     * Returns { ok: bool, found: [...], missing: [...], details: string }
-     */
     var KEY_FILES = [
       'GEODATA/WORLD.DAT',
       'GEODATA/OBDATA.DAT',
@@ -737,11 +677,9 @@
       var missing = [];
       var totalFiles = 0;
 
-      /* Count total files and check key files */
       for (var d = 0; d < REQUIRED_DIRS.length; d++) {
         try {
           var dirPath = UFO_DIR + '/' + REQUIRED_DIRS[d];
-          /* Try both original case and uppercase */
           var entries;
           try { entries = Module.FS.readdir(dirPath); } catch(e) {
             try { entries = Module.FS.readdir(UFO_DIR + '/' + REQUIRED_DIRS[d].toLowerCase()); } catch(e2) {
@@ -766,7 +704,6 @@
             missing.push(KEY_FILES[i] + ' (empty)');
           }
         } catch(e) {
-          /* Try case-insensitive: uppercase whole path */
           try {
             var altPath = UFO_DIR + '/' + KEY_FILES[i].toUpperCase();
             var stat2 = Module.FS.stat(altPath);
@@ -781,7 +718,7 @@
         }
       }
 
-      var ok = missing.length <= 2; /* Allow a couple missing — some versions differ */
+      var ok = missing.length <= 2;
       var details = 'Total files in UFO/: ~' + totalFiles + '\n' +
         'Key files found: ' + found.length + '/' + KEY_FILES.length + '\n';
       if (missing.length > 0) {
@@ -791,9 +728,6 @@
       return { ok: ok, found: found, missing: missing, details: details };
     }
 
-    /* ------------------------------------------------------------------ */
-    /*  Upload screen logic                                               */
-    /* ------------------------------------------------------------------ */
     dropZone.addEventListener('click', function() { fileInput.click(); });
 
     dropZone.addEventListener('dragover', function(e) {
@@ -814,14 +748,11 @@
       handleSelectedFiles(fileInput.files);
     });
 
-    /** Process files from the directory picker (<input webkitdirectory>) */
     function handleSelectedFiles(fileList) {
       pendingFiles = [];
       for (var i = 0; i < fileList.length; i++) {
         var f = fileList[i];
-        /* webkitRelativePath gives e.g. "UFO/GEODATA/foo.dat" */
         var rel = f.webkitRelativePath || f.name;
-        /* Strip the top-level directory name so we get "GEODATA/foo.dat" */
         var parts = rel.split('/');
         if (parts.length > 1) parts.shift();
         var path = parts.join('/');
@@ -830,7 +761,6 @@
       showPendingFiles();
     }
 
-    /** Process items from drag-and-drop (supports directory entries) */
     function handleDroppedItems(items) {
       pendingFiles = [];
       var promises = [];
@@ -846,13 +776,6 @@
       });
     }
 
-    /**
-     * Recursively read a FileSystemEntry.
-     * isTopLevel=true for the initially dropped folder (its name is stripped).
-     *
-     * Firefox's readEntries() may not return all entries in one call.
-     * The spec requires calling it repeatedly until it returns empty.
-     */
     function readEntryRecursive(entry, basePath, isTopLevel) {
       return new Promise(function(resolve) {
         if (entry.isFile) {
@@ -892,7 +815,6 @@
     function showPendingFiles() {
       if (pendingFiles.length === 0) return;
 
-      /* Collect top-level directory names */
       var dirs = {};
       pendingFiles.forEach(function(f) {
         var d = f.path.split('/')[0].toUpperCase();
@@ -900,14 +822,11 @@
       });
       var topDirs = Object.keys(dirs).sort();
 
-      /* Check: do the expected data directories appear at the top level? */
       var foundAtTop = REQUIRED_DIRS.filter(function(r) { return topDirs.indexOf(r) !== -1; });
       var missingAtTop = REQUIRED_DIRS.filter(function(r) { return topDirs.indexOf(r) === -1; });
 
-      /* Check: are they nested one level deeper? (common mistake) */
       var nestedPrefix = null;
       if (missingAtTop.length > 4) {
-        /* Most required dirs missing at top — check if they're inside a subdirectory */
         var secondLevel = {};
         pendingFiles.forEach(function(f) {
           var parts = f.path.split('/');
@@ -929,15 +848,12 @@
       }
 
       if (nestedPrefix) {
-        /* Auto-fix: strip the extra nesting level */
         diagLog('Detected nested data folder: ' + nestedPrefix + '/ — auto-correcting paths', 'warn');
-        var prefixLower = nestedPrefix.toLowerCase() + '/';
         pendingFiles = pendingFiles.filter(function(f) {
           return f.path.toUpperCase().startsWith(nestedPrefix + '/');
         }).map(function(f) {
           return { path: f.path.substring(f.path.indexOf('/') + 1), file: f.file };
         });
-        /* Recalculate dirs after fix */
         dirs = {};
         pendingFiles.forEach(function(f) {
           var d = f.path.split('/')[0].toUpperCase();
@@ -948,7 +864,6 @@
         missingAtTop = REQUIRED_DIRS.filter(function(r) { return topDirs.indexOf(r) === -1; });
       }
 
-      /* Build the display summary */
       var summary = topDirs.map(function(d) {
         var isExpected = REQUIRED_DIRS.indexOf(d) !== -1;
         return (isExpected ? '&#9989; ' : '') + d + '/ (' + dirs[d] + ' files)';
@@ -956,12 +871,9 @@
 
       var warning = '';
       if (missingAtTop.length > 0 && missingAtTop.length <= 4) {
-        warning = '<br><span style="color: #fa0;">&#9888; Missing expected folders: ' + missingAtTop.join(', ') +
-          '</span><br><span style="color: var(--text-dim); font-size: 12px;">The game may still work, but some features could be broken.</span>';
+        warning = '<br><span style="color: #fa0;">&#9888; Missing expected folders: ' + missingAtTop.join(', ') + '</span>';
       } else if (missingAtTop.length > 4) {
-        warning = '<br><span style="color: #f55;">&#9888; This doesn\'t look like X-COM game data.</span>' +
-          '<br><span style="color: var(--text-dim); font-size: 12px;">Expected folders like GEODATA, GEOGRAPH, MAPS, SOUND, etc. ' +
-          'Make sure you\'re selecting the folder that directly contains these subdirectories.</span>';
+        warning = '<br><span style="color: #f55;">&#9888; This doesn\'t look like X-COM game data.</span>';
       }
 
       if (nestedPrefix) {
@@ -971,11 +883,9 @@
       fileListEl.innerHTML = '<strong>' + pendingFiles.length + ' files found:</strong><br>' + summary + warning;
       uploadBtn.style.display = 'block';
 
-      diagLog('Upload analysis: ' + pendingFiles.length + ' files, ' + foundAtTop.length + '/' + REQUIRED_DIRS.length +
-        ' expected dirs found' + (nestedPrefix ? ' (auto-fixed from ' + nestedPrefix + '/)' : ''));
+      diagLog('Upload analysis: ' + pendingFiles.length + ' files, ' + foundAtTop.length + '/' + REQUIRED_DIRS.length + ' expected dirs found');
     }
 
-    /** Write pending files into the Emscripten VFS and persist to IndexedDB */
     uploadBtn.addEventListener('click', function() {
       uploadBtn.style.display = 'none';
       uploadProgress.style.display = 'block';
@@ -985,76 +895,54 @@
       var total = pendingFiles.length;
 
       function writeNext() {
-      if (done >= total) {
-        uploadProgress.textContent = 'Validating game data...';
-        diagLog('Upload complete — validating game data...');
+        if (done >= total) {
+          uploadProgress.textContent = 'Validating game data...';
+          diagLog('Upload complete — validating game data...');
 
-        var validation = validateGameData();
-        diagLog('Validation: ' + validation.found.length + '/' + KEY_FILES.length +
-          ' key files found, ' + validation.missing.length + ' missing',
-          validation.ok ? 'ok' : 'warn');
+          var validation = validateGameData();
+          diagLog('Validation: ' + validation.found.length + '/' + KEY_FILES.length +
+            ' key files found, ' + validation.missing.length + ' missing',
+            validation.ok ? 'ok' : 'warn');
 
-        if (!validation.ok) {
-          diagLog('Validation failed: ' + validation.details, 'fail');
-          uploadProgress.style.display = 'none';
-          showError(
-            'INCOMPLETE GAME DATA',
-            'The uploaded files appear to be missing key X-COM data files.',
-            validation.details
-          );
+          if (!validation.ok) {
+            diagLog('Validation failed: ' + validation.details, 'fail');
+            uploadProgress.style.display = 'none';
+            showError(
+              'INCOMPLETE GAME DATA',
+              'The uploaded files appear to be missing key X-COM data files.',
+              validation.details
+            );
+            return;
+          }
+
+          uploadProgress.textContent = 'Saving to browser storage...';
+          syncToIDB(function() {
+            uploadProgress.textContent = 'Done!';
+            setTimeout(startGame, 500);
+          });
           return;
         }
-
-        uploadProgress.textContent = 'Saving to browser storage...';
-        diagLog('Starting syncToIDB for game data persistence...');
-
-        Module.FS.syncfs(false, function(err) {
-          if (err) {
-            diagLog('IDBFS persist error: ' + err, 'fail');
-            uploadProgress.textContent = 'Save failed: ' + err;
-            showError('PERSISTENCE ERROR', 'Failed to write game files to browser storage.', String(err));
-          } else {
-            diagLog('IDBFS persist successful!', 'ok');
-            uploadProgress.textContent = 'Done!';
-            setTimeout(startGame, 800);
+        var item = pendingFiles[done];
+        var reader = new FileReader();
+        reader.onload = function() {
+          var fullPath = UFO_DIR + '/' + item.path;
+          var dirParts = fullPath.split('/');
+          dirParts.pop();
+          mkdirp(dirParts.join('/'));
+          Module.FS.writeFile(fullPath, new Uint8Array(reader.result));
+          done++;
+          if (done % 20 === 0 || done === total) {
+            uploadProgress.textContent = 'Installing... ' + done + '/' + total;
           }
-        });
-        return;
+          if (done % 50 === 0) setTimeout(writeNext, 0);
+          else writeNext();
+        };
+        reader.readAsArrayBuffer(item.file);
       }
-
-      var currentItem = pendingFiles[done];
-      var reader = new FileReader();
-      reader.onload = function() {
-        var rawPath = currentItem.path || currentItem.file.name;
-        // Only strip top-level container folders like xcomufo/ or XCOM/
-        var cleanPath = rawPath.replace(/^(xcomufo|xcom|ufo)\//i, '');
-        var fullPath = UFO_DIR + '/' + cleanPath;
-
-        /* Ensure parent directories exist */
-        var dirParts = fullPath.split('/');
-        dirParts.pop(); /* remove filename */
-        mkdirp(dirParts.join('/'));
-
-        Module.FS.writeFile(fullPath, new Uint8Array(reader.result));
-        done++;
-
-        if (done % 20 === 0 || done === total) {
-          uploadProgress.textContent = 'Installing... ' + done + '/' + total;
-        }
-
-        /* Yield to browser periodically */
-        if (done % 50 === 0) setTimeout(writeNext, 0);
-        else writeNext();
-      };
-      reader.readAsArrayBuffer(currentItem.file);
-    }
       writeNext();
     });
 
-    /* ------------------------------------------------------------------ */
-    /*  Restore saves on upload screen                                    */
-    /* ------------------------------------------------------------------ */
-    var restoreBtn    = document.getElementById('restore-saves-btn');
+var restoreBtn    = document.getElementById('restore-saves-btn');
     var restoreInput  = document.getElementById('restore-saves-input');
     var restoreStatus = document.getElementById('restore-saves-status');
 
@@ -1095,9 +983,7 @@
             if (done >= entries.length) {
               restoreStatus.textContent = entries.length + ' save(s) queued for import.';
               restoreInput.value = '';
-              /* Store for writing after IDBFS is mounted */
               window._pendingRestoreSaves = entries.map(function(e) { return e; });
-              /* Actually write them now if FS is ready */
               writePendingRestores();
               return;
             }
@@ -1148,15 +1034,12 @@
       readNext();
     }
 
-    /** Write pending restore saves into the VFS (only works after IDBFS mount) */
     function writePendingRestores() {
-      /* If the FS isn't mounted yet, saves will be written in startGame */
       if (!window._idbfsMounted) return;
 
       var savesDir = PERSIST_DIR + '/xcom1';
       mkdirp(savesDir);
 
-      /* From zip */
       if (window._pendingRestoreSaves) {
         window._pendingRestoreSaves.forEach(function(entry) {
           if (entry._data) {
@@ -1169,7 +1052,6 @@
         delete window._pendingRestoreSaves;
       }
 
-      /* From loose files */
       if (window._pendingRestoreLoose) {
         window._pendingRestoreLoose.forEach(function(item) {
           Module.FS.writeFile(savesDir + '/' + item.name, item.data);
@@ -1182,148 +1064,104 @@
       });
     }
 
-    /* ------------------------------------------------------------------ */
-    /*  Game startup orchestration                                        */
-    /* ------------------------------------------------------------------ */
     function showUploadScreen() {
       uploadScreen.style.display = 'block';
       statusEl.style.display = 'none';
     }
 
     function startGame() {
-  diagLog('startGame() called');
+      diagLog('startGame() called');
 
-  // Prevent double-launching the WebAssembly runtime
-  if (window._gameStarted) {
-    diagLog('Game already started, skipping re-initialization', 'ok');
-    return;
-  }
-  window._gameStarted = true;
-
-  // Unhide UI elements
-  if (typeof uploadScreen !== 'undefined' && uploadScreen) uploadScreen.style.display = 'none';
-  if (typeof canvasEl !== 'undefined' && canvasEl) {
-    canvasEl.style.display = 'block';
-    canvasEl.style.visibility = 'visible';
-  }
-  if (typeof toolbar !== 'undefined' && toolbar) toolbar.style.display = 'block';
-  if (typeof statusEl !== 'undefined' && statusEl) {
-    statusEl.textContent = 'Starting OpenXcom...';
-    statusEl.style.display = 'block';
-  }
-
-  /* Resume AudioContext */
-  try {
-    var ac = window.AudioContext || window.webkitAudioContext;
-    if (ac && Module && Module.SDL && Module.SDL.audioContext) {
-      if (Module.SDL.audioContext.state === 'suspended') {
-        Module.SDL.audioContext.resume().then(function() {
-          diagLog('AudioContext resumed', 'ok');
-        });
+      if (window._gameStarted) {
+        diagLog('Engine already started, skipping re-entry', 'ok');
+        return;
       }
+      window._gameStarted = true;
+
+      uploadScreen.style.display = 'none';
+      canvasEl.style.display = 'block';
+      toolbar.style.display = 'block';
+      statusEl.textContent = 'Starting OpenXcom...';
+      statusEl.style.display = 'block';
+
+      try {
+        var ac = window.AudioContext || window.webkitAudioContext;
+        if (ac && Module && Module.SDL && Module.SDL.audioContext) {
+          if (Module.SDL.audioContext.state === 'suspended') {
+            Module.SDL.audioContext.resume().then(function() {
+              diagLog('AudioContext resumed', 'ok');
+            });
+          }
+        }
+      } catch(ignore) {}
+
+      try {
+        diagLog('Calling Module.callMain()...');
+        Module.callMain([]);
+        diagLog('Module.callMain() returned successfully', 'ok');
+
+        setInterval(function() {
+          if (window._idbfsMounted && typeof Module !== 'undefined' && Module.FS) {
+            Module.FS.syncfs(false, function(err) {
+              if (err) console.warn('Auto-save sync error:', err);
+            });
+          }
+        }, 3000);
+
+        canvasEl.addEventListener('contextmenu', function(e) {
+          e.preventDefault();
+        });
+      } catch(e) {
+        diagLog('callMain() threw: ' + (e.message || e), 'fail');
+        showError(
+          'GAME FAILED TO START',
+          'OpenXcom crashed during startup.',
+          String(e.message || e) + '\n\n' + (e.stack || '')
+        );
+        return;
+      }
+
+      statusEl.textContent = 'Running...';
+      setTimeout(function() { statusEl.style.display = 'none'; }, 2000);
+      setTimeout(fitCanvas, 200);
+      setTimeout(fitCanvas, 1000);
     }
-  } catch(ignore) {}
 
-  /* Start Game Engine */
-  try {
-    diagLog('Calling Module.callMain()...');
-    Module.callMain([]);
-    diagLog('Module.callMain() returned successfully', 'ok');
+    function onEngineReady() {
+      diagLog('Emscripten runtime initialized', 'ok');
+      statusEl.textContent = 'Checking for game data...';
 
-    // Auto-save: sync VFS changes back to IndexedDB every 3 seconds
-    setInterval(function() {
-      if (window._idbfsMounted && typeof Module !== 'undefined' && Module.FS) {
-        Module.FS.syncfs(false, function(err) {
-          if (err) console.warn('Auto-save sync error:', err);
-        });
+      try {
+        mkdirp(PERSIST_DIR);
+        // Direct mount on PERSIST_DIR
+        Module.FS.mount(Module.FS.filesystems.IDBFS, {}, PERSIST_DIR);
+        diagLog('IDBFS mounted at ' + PERSIST_DIR, 'ok');
+      } catch(e) {
+        diagLog('IDBFS mount status: ' + e.message, 'warn');
       }
-    }, 3000);
 
-    /* Prevent right-click context menu on game canvas */
-    if (typeof canvasEl !== 'undefined' && canvasEl) {
-      canvasEl.addEventListener('contextmenu', function(e) {
-        e.preventDefault();
+      syncFromIDB(function(err) {
+        if (err) {
+          diagLog('syncfs(populate) error: ' + err, 'warn');
+        } else {
+          diagLog('IndexedDB synced to VFS', 'ok');
+        }
+        window._idbfsMounted = true;
+
+        if (window._pendingRestoreSaves || window._pendingRestoreLoose) {
+          writePendingRestores();
+        }
+
+        if (hasUFOData()) {
+          diagLog('UFO game data found in storage', 'ok');
+          startGame();
+        } else {
+          diagLog('No UFO game data found — showing upload screen');
+          showUploadScreen();
+        }
       });
     }
-  } catch(e) {
-    diagLog('callMain() threw: ' + (e.message || e), 'fail');
-    if (typeof showError === 'function') {
-      showError(
-        'GAME FAILED TO START',
-        'OpenXcom crashed during startup.',
-        String(e.message || e) + '\n\n' + (e.stack || '')
-      );
-    }
-    return;
-  }
 
-  if (typeof statusEl !== 'undefined' && statusEl) {
-    statusEl.textContent = 'Running...';
-    setTimeout(function() { statusEl.style.display = 'none'; }, 2000);
-  }
-
-  if (typeof fitCanvas === 'function') {
-    setTimeout(fitCanvas, 200);
-    setTimeout(fitCanvas, 1000);
-  }
-}
-
-    /**
-     * Called once the Emscripten runtime is ready.
-     * Sets up IDBFS, checks for existing game data, and either starts
-     * the game or shows the upload screen.
-     */
-    function onEngineReady() {
-  diagLog('Emscripten runtime initialized', 'ok');
-
-  try {
-    if (!Module.FS.analyzePath('/UFO').exists) {
-      Module.FS.mkdir('/UFO');
-    }
-  } catch(e) {}
-
-  var idbfs = (Module.FS && Module.FS.filesystems && Module.FS.filesystems.IDBFS) || (typeof IDBFS !== 'undefined' ? IDBFS : null);
-
-  if (idbfs) {
-    try {
-      Module.FS.mount(idbfs, {}, '/UFO');
-      diagLog('IDBFS mounted at /UFO', 'ok');
-    } catch(e) {
-      diagLog('IDBFS mount status: ' + e.message, 'warn');
-    }
-  }
-
-  // Sync IndexedDB storage into RAM VFS
-  Module.FS.syncfs(true, function(err) {
-    if (err) {
-      diagLog('IDBFS populate error: ' + err, 'warn');
-    } else {
-      diagLog('IndexedDB synced to RAM VFS', 'ok');
-    }
-    window._idbfsMounted = true;
-
-    // Retry check up to 3 times to allow the virtual filesystem to register files
-    var attempts = 0;
-    function checkAndLaunch() {
-      attempts++;
-      if (hasUFOData()) {
-        diagLog('Game data detected in storage — launching game!', 'ok');
-        startGame();
-      } else if (attempts < 3) {
-        setTimeout(checkAndLaunch, 300);
-      } else {
-        diagLog('No game data found — showing upload screen', 'warn');
-        if (typeof showUploadScreen === 'function') showUploadScreen();
-        else if (typeof uploadScreen !== 'undefined' && uploadScreen) uploadScreen.style.display = 'block';
-      }
-    }
-
-    checkAndLaunch();
-  });
-}
-    /* ------------------------------------------------------------------ */
-    /*  Toolbar: export, import, reset                                    */
-    /* ------------------------------------------------------------------ */
     var toolbar      = document.getElementById('toolbar');
     var toolbarMenu  = document.getElementById('toolbar-menu');
     var toolbarToggle = document.getElementById('toolbar-toggle');
@@ -1334,7 +1172,6 @@
     });
     document.addEventListener('click', function() { toolbarMenu.style.display = 'none'; });
 
-    /* ---- Export saves ---- */
     document.getElementById('btn-export').addEventListener('click', function() {
       toolbarMenu.style.display = 'none';
       exportSaves();
@@ -1361,12 +1198,10 @@
     }
 
     function exportSaves() {
-      /* First sync to make sure IDBFS is up to date */
       syncToIDB(function() {
         var savesDir = PERSIST_DIR + '/xcom1';
         var files = collectFiles(savesDir, 'xcom1');
 
-        /* Also grab options.cfg if it exists */
         try {
           Module.FS.stat(PERSIST_DIR + '/options.cfg');
           files.push({ path: 'options.cfg', fullPath: PERSIST_DIR + '/options.cfg' });
@@ -1400,7 +1235,6 @@
       });
     }
 
-    /* ---- Import saves ---- */
     var importModal     = document.getElementById('import-modal');
     var importFileInput = document.getElementById('import-file-input');
     var importStatus    = document.getElementById('import-status');
@@ -1421,7 +1255,6 @@
       var files = importFileInput.files;
       if (!files || files.length === 0) return;
 
-      /* Check if the first file is a zip */
       var firstFile = files[0];
       var isZip = firstFile.name.toLowerCase().endsWith('.zip');
 
@@ -1476,9 +1309,7 @@
       reader.readAsArrayBuffer(file);
     }
 
-    /** Import individual .sav files directly into xcom1/ */
     function importLooseFiles(fileList) {
-      /* Filter to only .sav files */
       var savFiles = [];
       for (var i = 0; i < fileList.length; i++) {
         if (fileList[i].name.toLowerCase().endsWith('.sav'))
@@ -1525,7 +1356,6 @@
       });
     }
 
-    /* ---- Reset all data ---- */
     var resetModal = document.getElementById('reset-modal');
     var resetStep1 = document.getElementById('reset-step1');
     var resetStep2 = document.getElementById('reset-step2');
@@ -1556,15 +1386,12 @@
       var dbName = PERSIST_DIR;
       var req = indexedDB.deleteDatabase(dbName);
       req.onsuccess = function() {
-        console.log('IndexedDB deleted:', dbName);
         window.location.reload();
       };
       req.onerror = function() {
-        console.error('Failed to delete IndexedDB:', dbName);
         window.location.reload();
       };
       req.onblocked = function() {
-        console.warn('IndexedDB delete blocked - reloading');
         window.location.reload();
       };
     }
@@ -1598,13 +1425,10 @@
       performReset();
     });
 
-    /* ------------------------------------------------------------------ */
-    /*  Emscripten Module configuration                                   */
-    /* ------------------------------------------------------------------ */
     diagLog('Running pre-flight checks...');
     var preflightOk = runPreflightChecks();
 
-    var _engineErrors = [];
+        var _engineErrors = [];
     var Module = {
       canvas: canvasEl,
       noInitialRun: true,
@@ -1612,7 +1436,6 @@
       printErr: function(text) {
         console.error(text);
         _engineErrors.push(text);
-        /* Keep last 50 engine errors for diagnostics */
         if (_engineErrors.length > 50) _engineErrors.shift();
       },
       setStatus: function(text) {
@@ -1638,7 +1461,7 @@
     };
     diagLog('Loading openxcom.js...');
   </script>
-  <script src="openxcom.js"></script>
+  <script async src="openxcom.js"></script>
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(function(err) {
